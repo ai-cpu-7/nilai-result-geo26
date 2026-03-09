@@ -878,12 +878,12 @@
 
 <!-- TAB BUTTONS -->
 <div class="tabs">
-  <button class="tab-button active" onclick="switchTab('input')">Input Nilai</button>
-  <button class="tab-button" onclick="switchTab('rekap')">Rekap Nilai</button>
+  <button class="tab-button" onclick="switchTab('input')">Input Nilai</button>
+  <button class="tab-button active" onclick="switchTab('rekap')">Rekap Nilai</button>
 </div>
 
 <!-- INPUT NILAI CONTAINER -->
-<div class="container active" id="inputContainer">
+<div class="container" id="inputContainer" style="display:none;">
   <div id="loginBox">
     <h2>Login Siswa</h2>
     <input type="text" id="nisnLogin" placeholder="Masukkan NISN" onkeypress="if(event.key === 'Enter') login()" />
@@ -1282,6 +1282,9 @@ const students = {
 
 let tugasYangSudahDiinput = [];
 let selectedCols = [];
+// toggle input feature on/off. set to false when entry should be disabled
+const allowInput = false;
+
 let allRows = [];
 
 const allowedHeaders = ['NISN','NAMA','KELAS','BENTUK TUGAS','NILAI ANGKA','NILAI HURUF'];
@@ -1293,6 +1296,11 @@ const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:j
 
 // Tab switching
 function switchTab(tab) {
+  // prevent switching to input tab when the feature is disabled
+  if (tab === 'input' && !allowInput) {
+    return;
+  }
+
   document.getElementById('inputContainer').classList.remove('active');
   document.getElementById('rekapContainer').classList.remove('active');
   document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
@@ -1423,7 +1431,30 @@ function tampilkanDataRekap() {
 }
 
 // INPUT NILAI FUNCTIONS
+// when the page is ready, optionally disable/hide the input area
 document.addEventListener('DOMContentLoaded', function() {
+  if (!allowInput) {
+    // hide the input tab button and container, switch to rekap automatically
+    const inputTabBtn = Array.from(document.querySelectorAll('.tab-button')).find(b => b.textContent.trim().toLowerCase().includes('input'));
+    if (inputTabBtn) {
+      inputTabBtn.style.display = 'none';
+    }
+    const inputCont = document.getElementById('inputContainer');
+    if (inputCont) {
+      inputCont.classList.remove('active');
+      inputCont.style.display = 'none';
+    }
+    switchTab('rekap');
+  } else {
+    // feature on: reveal input container and make tab active
+    const inputCont = document.getElementById('inputContainer');
+    if (inputCont) {
+      inputCont.style.display = '';
+    }
+    // ensure correct active tab
+    switchTab('input');
+  }
+
   const formInputs = ['nilaiAngka', 'kelas', 'tugas', 'nilaiHuruf'];
   formInputs.forEach(id => {
     const element = document.getElementById(id);
@@ -1567,18 +1598,45 @@ function kirimData(){
 
   document.getElementById('loadingOverlay').classList.add('active');
 
+  // encode file as base64 and include in JSON so the script can handle it
+  const file = buktiDokumen[0];
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    data.buktiBase64 = e.target.result; // data URL
+    sendJson(data);
+  };
+  reader.onerror = function(err) {
+    document.getElementById('loadingOverlay').classList.remove('active');
+    console.error('reader error', err);
+    alert('Gagal membaca file bukti dokumen');
+  };
+  reader.readAsDataURL(file);
+}
+
+function sendJson(data) {
   fetch('https://script.google.com/macros/s/AKfycbxfp_vXYkLgPKaaVseuBfsCrKCOGcC_ipov13c7o55dxaRykHiTIXZRzuI1PkvbvBAWAA/exec', {
     method: 'POST',
-    body: JSON.stringify(data)
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    mode: 'cors'
   })
-  .then(res => res.text())
   .then(res => {
     document.getElementById('loadingOverlay').classList.remove('active');
+    if (!res.ok) {
+      return res.text().then(t => { throw new Error(t || 'Response bukan OK'); });
+    }
+    return res.text();
+  })
+  .then(resText => {
+    if (resText.toLowerCase().includes('error') || resText.toLowerCase().includes('failed')) {
+      throw new Error(resText);
+    }
     showPreview(data);
   })
   .catch(err => {
     document.getElementById('loadingOverlay').classList.remove('active');
-    alert('Gagal mengirim data');
+    console.error('sendJson error:', err);
+    alert('Gagal mengirim data ke spreadsheet. ' + err.message);
   });
 }
 
